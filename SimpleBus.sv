@@ -133,7 +133,8 @@ module top;
     SimpleBus_If bus_dut_if(clk, rst_n);
 
     initial begin
-
+        $dumpfile("dump.vcd"); 
+        $dumpvars;
         // Interface connect testbench and dut
         uvm_config_db #(virtual SimpleBus_If.dut_input_dri)::set(null, "uvm_test_top.env.dut_agent_h_i.dut_dri_h", "dut_input_dri_vif", bus_dut_if.dut_input_dri);
         uvm_config_db #(virtual SimpleBus_If.dut_input_mon)::set(null, "uvm_test_top.env.dut_agent_h_i.dut_mon_i_h", "dut_input_mon_vif", bus_dut_if.dut_input_mon);
@@ -207,6 +208,8 @@ class SimpleBus_Bus_Sequence extends uvm_sequence #(SimpleBus_Bus_Transaction);
     endfunction
 
     task body();
+        `uvm_info(get_name(), "Start sending bus transactions...", UVM_MEDIUM)
+        
         for (int i = 0; i < 10; i++) begin
             bus_tr = SimpleBus_Bus_Transaction::type_id::create("bus_tr");
             start_item(bus_tr);
@@ -216,6 +219,8 @@ class SimpleBus_Bus_Sequence extends uvm_sequence #(SimpleBus_Bus_Transaction);
             end
             finish_item(bus_tr);
         end
+
+        `uvm_info(get_name(), "End of sending bus transactions...", UVM_MEDIUM)
     endtask
 endclass : SimpleBus_Bus_Sequence
 
@@ -263,14 +268,19 @@ class SimpleBus_Bus_Driver extends uvm_driver #(SimpleBus_Bus_Transaction);
         bus_dri_vif.cb_bus_input.bus_addr <= 16'b0;
         bus_dri_vif.cb_bus_input.bus_wr_data <= 16'b0;
     endtask
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        `uvm_info(get_name(), "Bus driver start working...", UVM_MEDIUM)
+    endfunction
 
     task run_phase(uvm_phase phase);
+
         bus_dri_vif.cb_bus_input.bus_cmd_valid <= 1'b0;
         bus_dri_vif.cb_bus_input.bus_op <= 1'b0;
         bus_dri_vif.cb_bus_input.bus_addr <= 16'b0;
         bus_dri_vif.cb_bus_input.bus_wr_data <= 16'b0;
 
-        while (!bus_dri_vif.rst_n)
+        while (bus_dri_vif.rst_n == 1'b0)
             @(bus_dri_vif.cb_bus_input);
 
         while (1) begin
@@ -318,8 +328,13 @@ class SimpleBus_Bus_Monitor extends uvm_monitor;
         @(bus_mon_vif.cb_bus_output);
         bus_mon_tr.bus_rd_data = bus_mon_vif.cb_bus_output.bus_rd_data;
     endtask
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        `uvm_info(get_name(), "Bus monitor start working", UVM_MEDIUM)
+    endfunction
 
     task run_phase(uvm_phase phase);
+    
         while (1) begin
             bus_mon_tr = SimpleBus_Bus_Transaction::type_id::create("bus_mon_tr");
             collect_one_block(bus_mon_tr);
@@ -349,7 +364,6 @@ class SimpleBus_Bus_Agent extends uvm_agent;
             bus_sqr_h = SimpleBus_Bus_Sequencer::type_id::create("bus_sqr_h", this);
         end
         
-        //`uvm_info("BUS AGENT", "Build BUS Monitor", UVM_LOW)
         bus_mon_h = SimpleBus_Bus_Monitor::type_id::create("bus_mon_h", this);
     endfunction
 
@@ -385,6 +399,29 @@ class SimpleBus_Dut_Transaction extends uvm_sequence_item;
     function new(string name = "SimpleBus_Dut_Transaction ");
         super.new(name);
     endfunction
+
+    function bit do_compare(uvm_object rhs, uvm_comparer comparer);
+        SimpleBus_Dut_Transaction rhs_;
+        
+        if (!$cast(rhs_, rhs)) begin
+            return 0;
+        end 
+        
+        if (pload.size() != rhs_.pload.size()) begin
+            return 0;
+        end else begin 
+            for (int i = 0; i < pload.size(); i++) begin
+                if (pload[i] != rhs_.pload[i]) begin
+                    return 0;
+                end
+            end
+        end
+
+        return (super.do_compare(rhs, comparer) &&
+               (crc == rhs_.crc) &&
+               (lba == rhs_.lba) &&
+               (ecc == rhs_.ecc));
+    endfunction
 endclass : SimpleBus_Dut_Transaction
 
 // --------------------------------------------------------------------------------
@@ -400,6 +437,8 @@ class SimpleBus_Dut_Sequence extends uvm_sequence #(SimpleBus_Dut_Transaction);
     endfunction
 
     task body();
+        `uvm_info(get_name(), "Start sending dut transactions...", UVM_MEDIUM)
+        
         for (int i = 0; i < 10; i++) begin
             dut_tr = SimpleBus_Dut_Transaction::type_id::create("dut_dri_tr");
             start_item(dut_tr);
@@ -409,6 +448,8 @@ class SimpleBus_Dut_Sequence extends uvm_sequence #(SimpleBus_Dut_Transaction);
             end
             finish_item(dut_tr);
         end
+        
+        `uvm_info(get_name(), "End of sending dut transactions...", UVM_MEDIUM)
     endtask
 endclass : SimpleBus_Dut_Sequence
 
@@ -438,21 +479,21 @@ class SimpleBus_Dut_Driver extends uvm_driver #(SimpleBus_Dut_Transaction);
 
     virtual task drive_one_block(SimpleBus_Dut_Transaction dut_dri_tr);
         logic [7:0] packed_data[$];
-        int i;
+        int i, q_size;
 
         foreach (dut_dri_tr.pload[i]) begin
             packed_data.push_front(dut_dri_tr.pload[i]);
         end
-
         packed_data.push_front(dut_dri_tr.crc);
         packed_data.push_front(dut_dri_tr.lba);
         packed_data.push_front(dut_dri_tr.ecc);
-
+        q_size = packed_data.size(); 
+        
         repeat(3) @(dut_dri_vif.cb_dut_input_dri);
         while (packed_data.size()) begin
             @(dut_dri_vif.cb_dut_input_dri);
             dut_dri_vif.cb_dut_input_dri.rx_dv <= 1'b1;
-            dut_dri_vif.cb_dut_input_dri.rxd <= packed_data.pop_front();
+            dut_dri_vif.cb_dut_input_dri.rxd <= packed_data.pop_back();
         end
 
         @(dut_dri_vif.cb_dut_input_dri);
@@ -465,8 +506,13 @@ class SimpleBus_Dut_Driver extends uvm_driver #(SimpleBus_Dut_Transaction);
             `uvm_fatal("Dut Driver", "Failed to get SimpleBus_If");
         end
     endfunction
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        `uvm_info(get_name(), "Dut driver start working...", UVM_MEDIUM)
+    endfunction
 
     task run_phase(uvm_phase phase);
+        
         dut_dri_vif.cb_dut_input_dri.rx_dv <= 1'b0;
         dut_dri_vif.cb_dut_input_dri.rxd   <= 8'b0;
 
@@ -485,8 +531,6 @@ endclass : SimpleBus_Dut_Driver
 //  SimpleBus_Dut_Base_Monitor
 // --------------------------------------------------------------------------------
 virtual class SimpleBus_Dut_Base_Monitor extends uvm_monitor;
-    //`uvm_component_utils(SimpleBus_Dut_Base_Monitor)
-
     uvm_analysis_port #(SimpleBus_Dut_Transaction) ap;
     SimpleBus_Dut_Transaction dut_mon_tr;
 
@@ -495,19 +539,20 @@ virtual class SimpleBus_Dut_Base_Monitor extends uvm_monitor;
     endfunction
 
     virtual task pack_tr(SimpleBus_Dut_Transaction dut_mon_tr, logic [7 : 0] packed_data[$]);
-        int i; 
+        int i, q_size; 
+        
+        q_size = packed_data.size() - 3;  
+        dut_mon_tr.pload = new[q_size];
+        for (i = 0; i < q_size; i++)
+            dut_mon_tr.pload[i] = packed_data.pop_back;
 
-        dut_mon_tr.pload = new[packed_data.size() - 3];
-        for (i = 0; i < packed_data.size() - 3; i++)
-            dut_mon_tr.pload[i] = packed_data.pop_front;
-
-        dut_mon_tr.crc = packed_data.pop_front;
-        dut_mon_tr.lba = packed_data.pop_front;
-        dut_mon_tr.ecc = packed_data.pop_front;
+        dut_mon_tr.crc = packed_data.pop_back;
+        dut_mon_tr.lba = packed_data.pop_back;
+        dut_mon_tr.ecc = packed_data.pop_back;
     endtask
 
     pure virtual task collect_one_block(SimpleBus_Dut_Transaction dut_mon_tr);
-
+    
     virtual task run_phase(uvm_phase phase);
         while (1) begin
             dut_mon_tr = SimpleBus_Dut_Transaction::type_id::create("dut_mon_tr");
@@ -537,7 +582,6 @@ class SimpleBus_Dut_Input_Monitor extends SimpleBus_Dut_Base_Monitor;
             @(dut_mon_i_vif.cb_dut_input_mon)
              
             if (dut_mon_i_vif.cb_dut_input_mon.rx_dv == 1'b1) begin
-                `uvm_info("INPUT MONITOR", "Start receiving...", UVM_LOW)
                 break;
             end
         end
@@ -557,14 +601,10 @@ class SimpleBus_Dut_Input_Monitor extends SimpleBus_Dut_Base_Monitor;
 
         ap = new("dut_mon_ap", this);
     endfunction
-
-    // virtual task run_phase(uvm_phase phase);
-    //     while (1) begin
-    //         dut_mon_tr = SimpleBus_Dut_Transaction::type_id::create("dut_mon_tr");
-    //         collect_one_block(dut_mon_tr);
-    //         ap.write(dut_mon_tr);
-    //     end
-    // endtask
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        `uvm_info(get_name(), "Dut input monitor start working...", UVM_MEDIUM)
+    endfunction
 endclass : SimpleBus_Dut_Input_Monitor
 
 // --------------------------------------------------------------------------------
@@ -583,12 +623,10 @@ class SimpleBus_Dut_Output_Monitor extends SimpleBus_Dut_Base_Monitor;
         logic [7:0] packed_data[$];
         int i;
 
-         
-         while (1) begin
+        while (1) begin
             @(dut_mon_o_vif.cb_dut_output_mon)
              
             if (dut_mon_o_vif.cb_dut_output_mon.tx_en == 1'b1) begin
-                `uvm_info("OUTPUT MONITOR", "Start receiving...", UVM_LOW)
                 break;
             end
         end
@@ -608,14 +646,10 @@ class SimpleBus_Dut_Output_Monitor extends SimpleBus_Dut_Base_Monitor;
 
         ap = new("dut_mon_ap", this);
     endfunction
-
-    // virtual task run_phase(uvm_phase phase);
-    //     while (1) begin
-    //         dut_mon_tr = SimpleBus_Dut_Transaction::type_id::create("dut_mon_tr");
-    //         collect_one_block(dut_mon_tr);
-    //         ap.write(dut_mon_tr);
-    //     end
-    // endtask
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        `uvm_info(get_name(), "Dut output monitor start working...", UVM_MEDIUM)
+    endfunction
 endclass : SimpleBus_Dut_Output_Monitor
 
 // --------------------------------------------------------------------------------
@@ -664,8 +698,8 @@ endclass : SimpleBus_Dut_Agent
 class SimpleBus_Base_Vseq extends uvm_sequence #(uvm_sequence_item);
     `uvm_object_utils(SimpleBus_Base_Vseq)
 
-    SimpleBus_Bus_Sequencer bus_sqr_h;
-    SimpleBus_Dut_Sequencer dut_sqr_h;
+    SimpleBus_Bus_Sequencer #(SimpleBus_Bus_Transaction) bus_sqr_h;
+    SimpleBus_Dut_Sequencer #(SimpleBus_Dut_Transaction) dut_sqr_h;
 
     function new(string name = "base_vseq");
         super.new(name);
@@ -715,9 +749,31 @@ class SimpleBus_Scoreboard extends uvm_scoreboard;
         exp_port = new("exp_port", this);
         act_port = new("rec_port", this);
     endfunction
-
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        `uvm_info(get_name(), "Scoreboard start working...", UVM_MEDIUM)
+    endfunction
+    
     task run_phase(uvm_phase phase);
+        int i;
+
         while (1) begin
+            exp_port.get(exp_tr);
+            act_port.get(act_tr);
+            //`uvm_info("", $sformatf("EXP CRC = %x, ACT CRC = %x", exp_tr.crc, act_tr.crc), UVM_MEDIUM)
+            //if (exp_tr.crc != act_tr.crc) begin
+            //    `uvm_info("CRC MISMATCH", $sformatf("EXP CRC = %x, ACT CRC = %x", exp_tr.crc, act_tr.crc), UVM_MEDIUM)
+            //end
+
+            //for (i = 0; i < exp_tr.pload.size() && i < act_tr.pload.size(); i++) begin
+            //    `uvm_info("", $sformatf("EXP PLOAD[%d] = %x, ACT PLOAD[%d] = %x", i, exp_tr.pload[i], i, act_tr.pload[i]), UVM_MEDIUM)
+            //    if (exp_tr.pload[i] != act_tr.pload[i]) begin
+            //        `uvm_info("PLOAD MISMATCH", $sformatf("EXP PLOAD[%d] = %x, ACT PLOAD[%d] = %x", i, exp_tr.pload[i], i, act_tr.pload[i]), UVM_MEDIUM)
+            //    end 
+            //end
+            if (!exp_tr.compare(act_tr)) begin
+                `uvm_fatal("", "Exp and Act tr are different!");
+            end
         end
     endtask
 endclass : SimpleBus_Scoreboard
@@ -775,13 +831,21 @@ class SimpleBus_Test extends uvm_test;
     function void build_phase(uvm_phase phase);
         env = SimpleBus_Env::type_id::create("env", this);
     endfunction
+    
+    function void start_of_simulation_phase(uvm_phase phase);
+        if (uvm_report_enabled(UVM_HIGH)) begin
+            this.print;
+            factory.print;
+        end
+     endfunction 
 
-    task vseq_init(SimpleBus_Bus_Dut_Vseq bus_dut_vseq);
-            bus_dut_vseq.bus_sqr_h = env.bus_agent_h.bus_sqr_h;
-            bus_dut_vseq.dut_sqr_h = env.dut_agent_h_i.dut_sqr_h;
-    endtask
+    function void vseq_init(SimpleBus_Bus_Dut_Vseq bus_dut_vseq);
+        bus_dut_vseq.bus_sqr_h = env.bus_agent_h.bus_sqr_h;
+        bus_dut_vseq.dut_sqr_h = env.dut_agent_h_i.dut_sqr_h;
+    endfunction 
 
-    task run_phse(uvm_phase phase);
+    task run_phase(uvm_phase phase);
+      
         SimpleBus_Bus_Dut_Vseq bus_dut_vseq = SimpleBus_Bus_Dut_Vseq::type_id::create("bus_dut_vseq");
         phase.raise_objection(this);
             vseq_init(bus_dut_vseq);
@@ -790,7 +854,10 @@ class SimpleBus_Test extends uvm_test;
     endtask
 endclass : SimpleBus_Test
 
-/* Not allowed to do this*/
-//do {
-//    @(bus_mon_vif.cb_bus);
-//} while (bus_mon_vif.bus_cmd_valid != 1'b1);
+/*========================================================================================================
+Not allowed to do this
+do {
+    @(bus_mon_vif.cb_bus);
+} while (bus_mon_vif.bus_cmd_valid != 1'b1);
+========================================================================================================*/
+//P
