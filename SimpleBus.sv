@@ -174,6 +174,99 @@ module top;
     end
 endmodule : top
 
+class reg_invert extends uvm_reg;
+    `uvm_object_utils(reg_invert)
+
+    rand uvm_reg_field reg_data;
+
+    virtual function void build();
+        reg_data = uvm_reg_field::type_id::create("reg_data");
+        //function void configure (uvm_reg parent, 
+        //                         int unsigned regfield size, 
+        //                         int unsigned lsb_pos, 
+        //                         string access, 
+        //                         bit volatile, 
+        //                         uvm_reg_data_t reset, 
+        //                         bit has_reset, 
+        //                         bit is_rand, 
+        //                         bit individually_accessible)
+        reg_data.configure(this, 1, 0, "RW", 1, 0, 1, 1, 0);
+    endfunction
+
+    function new(string name="reg_invert");
+        // function new (string name = "", int unsigned n_bits, int has_coverage) 
+        // Create a new instance and type-specific configuration
+        // 
+        // Creates an instance of a register abstraction class with the specified
+        // name.
+        // 
+        // n_bits specifies the total number of bits in the register.
+        // Not all bits need to be implemented.
+        // This value is usually a multiple of 8.
+        // 
+        // has_coverage specifies which functional coverage models are present in
+        // the extension of the register abstraction class.
+        // Multiple functional coverage models may be specified by adding their
+        // symbolic names, as defined by the uvm_coverage_model_e type. 
+        super.new(name, 16, UVM_NO_COVERAGE);
+    endfunction
+endclass
+
+class reg_model extends uvm_reg_block;
+    `uvm_object_utils(reg_model)
+   
+    rand reg_invert invert_h;
+    uvm_reg_map SimpleBus_reg_map;
+
+    function new(input string name="reg_model");
+        super.new(name, UVM_NO_COVERAGE);
+    endfunction 
+    
+    virtual function void build();
+        invert_h = reg_invert::type_id::create("invert_h");
+      
+        // function void configure (uvm_reg_block blk_parent, uvm_reg_file regfile_parent = null, string hdl_path = "")
+        // Instance-specific configuration
+        // 
+        // Specify the parent block of this register.
+        // May also set a parent register file for this register,
+        // 
+        // If the register is implemented in a single HDL variable,
+        // its name is specified as the hdl_path.
+        // Otherwise, if the register is implemented as a concatenation
+        // of variables (usually one per field), then the HDL path
+        // must be specified using the add_hdl_path() or
+        // add_hdl_path_slice method. Configure 
+        invert_h.configure(this, null, "");
+        invert_h.build();
+        
+        // virtual function uvm_reg_map create_map (string name, uvm_reg_addr_t base_addr, int unsigned n_bytes, uvm_endianness_e endian, bit byte_addressing = 1)
+        // Create an address map in this block
+        //
+        // Create an address map with the specified name, then
+        // configures it with the following properties.
+        //
+        // base_addr          the base address for the map. All registers, memories,
+        //                    and sub-blocks within the map will be at offsets to this
+        //                    address
+        // n_bytes            the byte-width of the bus on which this map is used
+        // endian             the endian format. See uvm_endianness_e for possible
+        //                    values
+        // byte_addressing    specifies whether consecutive addresses refer are 1 byte
+        //                    apart (TRUE) or n_bytes apart (FALSE). Default is TRUE. 
+        SimpleBus_reg_map = create_map("SimpleBus_reg_map", 0, 2, UVM_BIG_ENDIAN, 0);
+        SimpleBus_reg_map.add_reg(invert_h, 'h9, "RW");
+    endfunction
+endclass
+
+
+
+
+
+
+
+
+
 // --------------------------------------------------------------------------------
 // BUS START...
 // --------------------------------------------------------------------------------
