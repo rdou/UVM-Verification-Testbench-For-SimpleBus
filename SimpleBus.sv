@@ -120,7 +120,6 @@ always @(posedge clk) begin
       endcase
    end
 end
-
 endmodule : dut
 
 // --------------------------------------------------------------------------------
@@ -174,6 +173,9 @@ module top;
     end
 endmodule : top
 
+// --------------------------------------------------------------------------------
+//  Reg Module
+// --------------------------------------------------------------------------------
 class SimpleBus_reg_invert extends uvm_reg;
     `uvm_object_utils(SimpleBus_reg_invert)
 
@@ -259,6 +261,26 @@ class SimpleBus_reg_model extends uvm_reg_block;
     endfunction
 endclass
 
+class SimpleBus_reg_seqextends extends uvm_reg_sequence;
+    `uvm_object_utils(SimpleBus_reg_seqextends)
+ 
+    function new( string name = "" );
+        super.new( name );
+    endfunction: new
+ 
+    virtual task body();
+        SimpleBus_reg_model reg_block_h; 
+        uvm_status_e        status;
+        uvm_reg_data_t      value;
+        bit                 invert; 
+        $cast(reg_block_h, model);
+        
+        invert = 1;
+
+        write_reg(reg_block_h.invert_h, status, invert);
+        read_reg (reg_block_h.invert_h, status, value);
+    endtask: body
+endclass
 // --------------------------------------------------------------------------------
 // BUS START...
 // --------------------------------------------------------------------------------
@@ -475,7 +497,7 @@ class SimpleBus_Bus_Agent extends uvm_agent;
     SimpleBus_Bus_Driver    bus_dri_h;
     SimpleBus_Bus_Monitor   bus_mon_h;
     SimpleBus_Bus_Sequencer bus_sqr_h;
-    SimpleBus_Bus_Adapter bus_adp_h;
+    SimpleBus_Bus_Adapter   bus_adp_h;
     uvm_analysis_port #(SimpleBus_Bus_Transaction) ap;
 
     function new(string name, uvm_component parent);
@@ -837,7 +859,7 @@ endclass : SimpleBus_Base_Vseq
 class SimpleBus_Bus_Dut_Vseq extends SimpleBus_Base_Vseq;
     `uvm_object_utils(SimpleBus_Bus_Dut_Vseq)
 
-    SimpleBus_Bus_Sequence bus_seq;
+    //SimpleBus_Bus_Sequence bus_seq;
     SimpleBus_Dut_Sequence dut_seq;
 
     function new(string name = "bus_dut_vseq");
@@ -845,13 +867,13 @@ class SimpleBus_Bus_Dut_Vseq extends SimpleBus_Base_Vseq;
     endfunction
 
     task body();
-        bus_seq = SimpleBus_Bus_Sequence::type_id::create("bus_seq");
+        //bus_seq = SimpleBus_Bus_Sequence::type_id::create("bus_seq");
         dut_seq = SimpleBus_Dut_Sequence::type_id::create("dut_seq");
 
-        fork
-            bus_seq.start(bus_sqr_h);
+        //fork
+            //bus_seq.start(bus_sqr_h);
             dut_seq.start(dut_sqr_h);
-        join
+        //join
     endtask
 endclass : SimpleBus_Bus_Dut_Vseq
 
@@ -897,6 +919,12 @@ class SimpleBus_Scoreboard extends uvm_scoreboard;
             //    end
             //end
             if (!exp_tr.compare(act_tr)) begin
+                for (i = 0; i < exp_tr.pload.size() && i < act_tr.pload.size(); i++) begin
+                    `uvm_info("", $sformatf("EXP PLOAD[%d] = %x, ACT PLOAD[%d] = %x", i, exp_tr.pload[i], i, act_tr.pload[i]), UVM_MEDIUM)
+                    if (exp_tr.pload[i] != act_tr.pload[i]) begin
+                        `uvm_info("PLOAD MISMATCH", $sformatf("EXP PLOAD[%d] = %x, ACT PLOAD[%d] = %x", i, exp_tr.pload[i], i, act_tr.pload[i]), UVM_MEDIUM)
+                    end
+                end
                 `uvm_fatal("", "Exp and Act tr are different!");
             end
         end
@@ -931,6 +959,7 @@ class SimpleBus_Env extends uvm_env;
         reg_predictor_h= SimpleBus_reg_predictor::type_id::create("reg_predictor_h", this);
         reg_block_h= SimpleBus_reg_model::type_id::create("reg_block_h", this);
         reg_block_h.build();
+        reg_block_h.lock_model(); 
         agt_scb_i_fifo = new("agt_scb_i_fifo", this);
         agt_scb_o_fifo = new("agt_scb_o_fifo", this);
         bus_agent_h.is_active = UVM_ACTIVE;
@@ -943,7 +972,6 @@ class SimpleBus_Env extends uvm_env;
         dut_agent_h_o.ap.connect(agt_scb_o_fifo.analysis_export);
         scb_h.exp_port.connect(agt_scb_o_fifo.blocking_get_export);
         scb_h.act_port.connect(agt_scb_i_fifo.blocking_get_export);
-
         if (reg_block_h.get_parent() == null) begin
             reg_block_h.SimpleBus_reg_map.set_sequencer(bus_agent_h.bus_sqr_h, bus_agent_h.bus_adp_h);
         end
@@ -978,16 +1006,21 @@ class SimpleBus_Test extends uvm_test;
      endfunction
 
     function void vseq_init(SimpleBus_Bus_Dut_Vseq bus_dut_vseq);
-        bus_dut_vseq.bus_sqr_h = env.bus_agent_h.bus_sqr_h;
+        //bus_dut_vseq.bus_sqr_h = env.bus_agent_h.bus_sqr_h;
         bus_dut_vseq.dut_sqr_h = env.dut_agent_h_i.dut_sqr_h;
     endfunction
 
     task run_phase(uvm_phase phase);
-
+        SimpleBus_reg_seqextends bus_reg_seq = SimpleBus_reg_seqextends::type_id::create("bus_reg_seq");  
         SimpleBus_Bus_Dut_Vseq bus_dut_vseq = SimpleBus_Bus_Dut_Vseq::type_id::create("bus_dut_vseq");
+
+        bus_reg_seq.model = env.reg_block_h;
         phase.raise_objection(this);
             vseq_init(bus_dut_vseq);
-            bus_dut_vseq.start(null);
+            fork
+                bus_dut_vseq.start(null);
+                bus_reg_seq.start(env.bus_agent_h.bus_sqr_h); 
+            join
         phase.drop_objection(this);
     endtask
 endclass : SimpleBus_Test
