@@ -2,7 +2,7 @@ import uvm_pkg::*;
 `include "uvm_macros.svh"
 `timescale 1ns/10ps
 
-typedef enum {BUS_RD = 0, BUS_WR} bus_op_e;
+typedef enum {BUS_WR = 0, BUS_RD} bus_op_e;
 
 // --------------------------------------------------------------------------------
 //  SimpleBus_If
@@ -73,7 +73,8 @@ input          rx_dv;
 output [7:0]   txd;
 output         tx_en;
 
-reg[7:0] txd; reg tx_en;
+reg[7:0] txd;
+reg tx_en;
 reg invert;
 
 always @(posedge clk) begin
@@ -181,20 +182,6 @@ class SimpleBus_reg_invert extends uvm_reg;
 
     rand uvm_reg_field reg_data;
 
-    virtual function void build();
-        reg_data = uvm_reg_field::type_id::create("reg_data");
-        //function void configure (uvm_reg parent,
-        //                         int unsigned regfield size,
-        //                         int unsigned lsb_pos,
-        //                         string access,
-        //                         bit volatile,
-        //                         uvm_reg_data_t reset,
-        //                         bit has_reset,
-        //                         bit is_rand,
-        //                         bit individually_accessible)
-        reg_data.configure(this, 1, 0, "RW", 1, 0, 1, 1, 0);
-    endfunction
-
     function new(string name="reg_invert");
         // function new (string name = "", int unsigned n_bits, int has_coverage)
         // Create a new instance and type-specific configuration
@@ -212,6 +199,23 @@ class SimpleBus_reg_invert extends uvm_reg;
         // symbolic names, as defined by the uvm_coverage_model_e type.
         super.new(name, 16, UVM_NO_COVERAGE);
     endfunction
+
+    virtual function void build();
+        reg_data = uvm_reg_field::type_id::create("reg_data");
+        //function void configure (uvm_reg parent,
+        //                         int unsigned regfield size,
+        //                         int unsigned lsb_pos,
+        //                         string access,
+        //                         bit volatile,
+        //                         uvm_reg_data_t reset,
+        //                         bit has_reset,
+        //                         bit is_rand,
+        //                         bit individually_accessible)
+        reg_data.configure(this, 1, 0, "RW", 0, 0, 1, 1, 0);
+
+        // for back-door access
+        // add_hdl_path_slice("invert", 0, 1);
+    endfunction
 endclass
 
 class SimpleBus_reg_model extends uvm_reg_block;
@@ -225,7 +229,7 @@ class SimpleBus_reg_model extends uvm_reg_block;
     endfunction
 
     virtual function void build();
-        invert_h = SimpleBus_reg_invert::type_id::create("invert_h");
+        invert_h = SimpleBus_reg_invert::type_id::create("invert");
 
         // function void configure (uvm_reg_block blk_parent, uvm_reg_file regfile_parent = null, string hdl_path = "")
         // Instance-specific configuration
@@ -241,6 +245,7 @@ class SimpleBus_reg_model extends uvm_reg_block;
         // add_hdl_path_slice method. Configure
         invert_h.configure(this, null, "");
         invert_h.build();
+        invert_h.add_hdl_path_slice("invert", 0, 1);
 
         // virtual function uvm_reg_map create_map (string name, uvm_reg_addr_t base_addr, int unsigned n_bytes, uvm_endianness_e endian, bit byte_addressing = 1)
         // Create an address map in this block
@@ -256,29 +261,51 @@ class SimpleBus_reg_model extends uvm_reg_block;
         //                    values
         // byte_addressing    specifies whether consecutive addresses refer are 1 byte
         //                    apart (TRUE) or n_bytes apart (FALSE). Default is TRUE.
-        SimpleBus_reg_map = create_map("SimpleBus_reg_map", 0, 2, UVM_BIG_ENDIAN, 0);
+        SimpleBus_reg_map = create_map("SimpleBus_reg_map", 0, 2, UVM_LITTLE_ENDIAN);
         SimpleBus_reg_map.add_reg(invert_h, 'h9, "RW");
+
+        // for back-door access
+        add_hdl_path("top.test_dut");
+        lock_model();
     endfunction
 endclass
 
-class SimpleBus_reg_seqextends extends uvm_reg_sequence;
-    `uvm_object_utils(SimpleBus_reg_seqextends)
- 
+class SimpleBus_reg_seq extends uvm_reg_sequence;
+    `uvm_object_utils(SimpleBus_reg_seq)
+
     function new( string name = "" );
         super.new( name );
     endfunction: new
- 
+
     virtual task body();
-        SimpleBus_reg_model reg_block_h; 
+        SimpleBus_reg_model reg_block_h;
         uvm_status_e        status;
         uvm_reg_data_t      value;
-        bit                 invert; 
+        bit                 invert;
         $cast(reg_block_h, model);
-        
+
         invert = 1;
 
-        write_reg(reg_block_h.invert_h, status, invert);
-        read_reg (reg_block_h.invert_h, status, value);
+        // frontdoor access
+        // write_reg(reg_block_h.invert_h, status, invert);
+        // read_reg (reg_block_h.invert_h, status, value);
+
+        // backdoor access
+        // poke_reg( reg_block_h.invert_h, status, invert);
+        // write_reg(reg_block_h.invert_h, status, invert);
+        // #100
+        write_reg (reg_block_h.invert_h, status, invert, UVM_BACKDOOR);
+        if (status == UVM_NOT_OK) begin
+            `uvm_info("RAL", "BACKDOOR WRITE STATUS NOT OK", UVM_MEDIUM)
+        end
+        // write_reg(reg_block_h.invert_h, status, 0);
+        `uvm_info("RAL", "UVM BACKDOOR WRITE DONE...", UVM_MEDIUM)
+        // #100
+        read_reg (reg_block_h.invert_h, status, value, UVM_BACKDOOR);
+        `uvm_info("RAL", $sformatf("UVM BACKDOOR READ DONE... Value = 0x%x", value), UVM_MEDIUM)
+        if (status == UVM_NOT_OK) begin
+            `uvm_info("RAL", "BACKDOOR READ STATUS NOT OK", UVM_MEDIUM)
+        end
     endtask: body
 endclass
 // --------------------------------------------------------------------------------
@@ -419,7 +446,6 @@ class SimpleBus_Bus_Driver extends uvm_driver #(SimpleBus_Bus_Transaction);
     endfunction
 
     task run_phase(uvm_phase phase);
-
         bus_dri_vif.cb_bus_input.bus_cmd_valid <= 1'b0;
         bus_dri_vif.cb_bus_input.bus_op <= 1'b0;
         bus_dri_vif.cb_bus_input.bus_addr <= 16'b0;
@@ -959,7 +985,7 @@ class SimpleBus_Env extends uvm_env;
         reg_predictor_h= SimpleBus_reg_predictor::type_id::create("reg_predictor_h", this);
         reg_block_h= SimpleBus_reg_model::type_id::create("reg_block_h", this);
         reg_block_h.build();
-        reg_block_h.lock_model(); 
+        //reg_block_h.lock_model();
         agt_scb_i_fifo = new("agt_scb_i_fifo", this);
         agt_scb_o_fifo = new("agt_scb_o_fifo", this);
         bus_agent_h.is_active = UVM_ACTIVE;
@@ -975,7 +1001,7 @@ class SimpleBus_Env extends uvm_env;
         if (reg_block_h.get_parent() == null) begin
             reg_block_h.SimpleBus_reg_map.set_sequencer(bus_agent_h.bus_sqr_h, bus_agent_h.bus_adp_h);
         end
-        reg_block_h.SimpleBus_reg_map.set_auto_predict(0);
+        reg_block_h.SimpleBus_reg_map.set_auto_predict(1);
         reg_predictor_h.map = reg_block_h.SimpleBus_reg_map;
         reg_predictor_h.adapter= bus_agent_h.bus_adp_h;
         bus_agent_h.ap.connect(reg_predictor_h.bus_in);
@@ -1011,7 +1037,7 @@ class SimpleBus_Test extends uvm_test;
     endfunction
 
     task run_phase(uvm_phase phase);
-        SimpleBus_reg_seqextends bus_reg_seq = SimpleBus_reg_seqextends::type_id::create("bus_reg_seq");  
+        SimpleBus_reg_seq bus_reg_seq = SimpleBus_reg_seq::type_id::create("bus_reg_seq");
         SimpleBus_Bus_Dut_Vseq bus_dut_vseq = SimpleBus_Bus_Dut_Vseq::type_id::create("bus_dut_vseq");
 
         bus_reg_seq.model = env.reg_block_h;
@@ -1019,16 +1045,9 @@ class SimpleBus_Test extends uvm_test;
             vseq_init(bus_dut_vseq);
             fork
                 bus_dut_vseq.start(null);
-                bus_reg_seq.start(env.bus_agent_h.bus_sqr_h); 
+                bus_reg_seq.start(env.bus_agent_h.bus_sqr_h);
             join
         phase.drop_objection(this);
     endtask
 endclass : SimpleBus_Test
-
-/*========================================================================================================
-Not allowed to do this
-do {
-    @(bus_mon_vif.cb_bus);
-} while (bus_mon_vif.bus_cmd_valid != 1'b1);
-========================================================================================================*/
 
