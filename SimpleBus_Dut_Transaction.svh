@@ -4,10 +4,10 @@
 class SimpleBus_Dut_Transaction extends uvm_sequence_item;
     `uvm_object_utils(SimpleBus_Dut_Transaction)
 
-    rand logic [7:0]  pload[];
+    rand logic [7:0]   pload[];
     rand logic [31:0] crc;
-    rand logic [7:0]  lba;
-    rand logic [7:0]  ecc;
+    rand logic [7:0]   lba;
+    rand logic [7:0]   ecc;
 
     constraint pload_num {
         pload.size >= 64;

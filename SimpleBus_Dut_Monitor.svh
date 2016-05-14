@@ -9,6 +9,8 @@ virtual class SimpleBus_Dut_Base_Monitor extends uvm_monitor;
         super.new(name, parent);
     endfunction
 
+    // send one transaction needs multiple clocks (8-bit/.cycle)
+    // we need to pack all 8-bit data to one transaction before sending it to scoreboard
     virtual task pack_tr(SimpleBus_Dut_Transaction dut_mon_tr, logic [7 : 0] packed_data[$]);
         int i, q_size;
 
@@ -22,6 +24,7 @@ virtual class SimpleBus_Dut_Base_Monitor extends uvm_monitor;
         dut_mon_tr.ecc = packed_data.pop_back;
     endtask
 
+    // input and output monitor use different method to collect all 8-bit data
     pure virtual task collect_one_block(SimpleBus_Dut_Transaction dut_mon_tr);
 
     virtual task run_phase(uvm_phase phase);
@@ -57,6 +60,8 @@ class SimpleBus_Dut_Input_Monitor extends SimpleBus_Dut_Base_Monitor;
             end
         end
 
+        // since we do not know the size of pload, we should first use a queue to collect data,
+        // then give the value to transaction
         while (dut_mon_i_vif.cb_dut_input_mon.rx_dv) begin
             packed_data.push_front(dut_mon_i_vif.cb_dut_input_mon.rxd);
             @(dut_mon_i_vif.cb_dut_input_mon);

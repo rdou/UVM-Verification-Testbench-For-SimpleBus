@@ -4,7 +4,7 @@
 class SimpleBus_Bus_Agent extends uvm_agent;
     `uvm_component_utils(SimpleBus_Bus_Agent)
 
-    // in this example, bus monitor and ap do nothing useful
+    // in this example, bus monitor and ap do nothing 
     SimpleBus_Bus_Driver                           bus_dri_h;
     SimpleBus_Bus_Monitor                          bus_mon_h;
     SimpleBus_Bus_Sequencer                        bus_sqr_h;

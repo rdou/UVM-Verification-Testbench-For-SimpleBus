@@ -13,7 +13,7 @@ class SimpleBus_Dut_Driver extends uvm_driver #(SimpleBus_Dut_Transaction);
 
     virtual task drive_one_block(SimpleBus_Dut_Transaction dut_dri_tr);
         logic [7:0] packed_data[$];
-        int i, q_size;
+        int i;
 
         foreach (dut_dri_tr.pload[i]) begin
             packed_data.push_front(dut_dri_tr.pload[i]);
@@ -21,7 +21,6 @@ class SimpleBus_Dut_Driver extends uvm_driver #(SimpleBus_Dut_Transaction);
         packed_data.push_front(dut_dri_tr.crc);
         packed_data.push_front(dut_dri_tr.lba);
         packed_data.push_front(dut_dri_tr.ecc);
-        q_size = packed_data.size();
 
         repeat(3) @(dut_dri_vif.cb_dut_input_dri);
         while (packed_data.size()) begin
