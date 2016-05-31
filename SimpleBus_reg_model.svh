@@ -28,6 +28,12 @@ class SimpleBus_reg_model extends uvm_reg_block;
         // add_hdl_path_slice method. Configure
         invert_h.configure(this, null, "");
         invert_h.build();
+
+        // function void add_hdl_path_slice (string name, int offset, int size, bit first = 0, string kind = "RTL")
+        // if the register is implemented in multiple HDL variables, we should add all these variables to this register 
+        // For example:
+        // invert_h.add_hdl_path_slice("invert_1", 0, 2);
+        // invert_h.add_hdl_path_slice("invert_2", 2, 2);
         invert_h.add_hdl_path_slice("invert", 0, 1);
 
         // virtual function uvm_reg_map create_map (string name, uvm_reg_addr_t base_addr, int unsigned n_bytes, uvm_endianness_e endian, bit byte_addressing = 1)
@@ -51,4 +57,4 @@ class SimpleBus_reg_model extends uvm_reg_block;
         add_hdl_path("top.test_dut");
         lock_model();
     endfunction
-endclass : SimpleBus_reg_model 
+endclass : SimpleBus_reg_model

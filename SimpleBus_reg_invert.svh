@@ -36,8 +36,5 @@ class SimpleBus_reg_invert extends uvm_reg;
         //                         bit is_rand,
         //                         bit individually_accessible)
         reg_data.configure(this, 1, 0, "RW", 0, 0, 1, 1, 0);
-
-        // for back-door access
-        // add_hdl_path_slice("invert", 0, 1);
     endfunction
 endclass
